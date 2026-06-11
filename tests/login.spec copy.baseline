@@ -1,0 +1,70 @@
+import { test, expect } from '@playwright/test';
+
+test('Filter unallocated jobs and drag to route AGH202 visually', async ({ page }) => {
+  // 1. Authentication
+  await page.goto('https://wmdemo.tempo.delivery/console/#/');
+  await page.getByRole('textbox', { name: 'user name' }).fill('resynctest');
+  await page.getByRole('textbox', { name: 'user name' }).press('Tab');
+  await page.getByRole('textbox', { name: 'Password' }).fill('password123');
+  await page.getByRole('button', { name: 'Login' }).click();
+
+  // 2. Navigate to Dispatch Panel
+  await page.locator('.dashboard-flex-item').first().click();
+  await page.getByRole('link', { name: ' Dispatch' }).nth(1).click();
+
+  // 3. Filter jobs by 'Unallocated' status
+  await page.getByRole('link', { description: 'Column Settings', exact: true }).nth(3).click();
+  await page.locator('span').filter({ hasText: 'Filter' }).click();
+  await page.locator('label').filter({ hasText: 'Unallocated' }).click();
+  await page.getByRole('button', { name: 'Filter' }).click();
+
+  // CRITICAL FIX: Wait for the layout to finish reloading before selecting elements
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(1000); // Give the DOM a moment to attach the fresh rows
+
+  // 4. NOW define the drag source elements (Safe from being detached)
+  const jobRow = page.locator('tr:has-text("Unallocated")').first();
+  const dragSourceCell = jobRow.locator('td', { hasText: 'Unallocated' }).first();
+
+  // 5. Define drop target (The explicit AGH202 route panel block)
+  const targetRoute = page.getByRole('option', { name: /AGH202/i }).first();
+
+  // Ensure both elements are cleanly in view and visible before tracking boxes
+  await dragSourceCell.scrollIntoViewIfNeeded();
+  await expect(dragSourceCell).toBeVisible();
+  
+  await targetRoute.scrollIntoViewIfNeeded();
+  await expect(targetRoute).toBeVisible();
+
+  // 6. Execute Visual Drag and Drop Sequence
+  const sourceBox = await dragSourceCell.boundingBox();
+  const routeBox = await targetRoute.boundingBox();
+
+  if (sourceBox && routeBox) {
+    // Click near the left edge of the cell to avoid clicking on selectable text links
+    await page.mouse.move(sourceBox.x + (sourceBox.width / 6), sourceBox.y + (sourceBox.height / 2));
+    await page.mouse.down();
+    
+    // Wait for the application's dragstart event listener to register the hold
+    await page.waitForTimeout(400); 
+
+    // Move smoothly across the screen to AGH202 using 50 steps so you can visually watch it slide
+    await page.mouse.move(
+      routeBox.x + (routeBox.width / 2), 
+      routeBox.y + (routeBox.height / 2), 
+      { steps: 50 }
+    );
+
+    // Hold it over AGH202 so the UI transitions into the "Ready to drop" state
+    await page.waitForTimeout(600); 
+
+    // Release the mouse to complete the drop action
+    await page.mouse.up();
+  }
+
+  // Allow the dispatch board UI/Network request to finish updates
+  await page.waitForLoadState('networkidle');
+
+  // 7. Keep the browser open so you can confirm the visual update manually
+  await page.waitForTimeout(9999999);
+});
